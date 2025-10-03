@@ -1,3 +1,4 @@
+import { useTheme } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Platform, StyleSheet } from 'react-native';
 
@@ -7,21 +8,31 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Link } from 'expo-router';
 
-export default function HomeScreen() {
+export default function IndexScreen() {
+  const { dark } = useTheme();
+
   return (
     <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
+      headerBackgroundColor={{
+        light: 'rgba(255,255,255,1)',
+        dark: 'rgba(0,0,0,0.25)'
+      }}
       headerImage={
         <Image
-          source={require('@/assets/images/project-sparkes-logo.png')}
+          source={
+            dark
+              ? require('@/assets/images/project-sparkes-logo-dark.png')
+              : require('@/assets/images/project-sparkes-logo-light.png')
+          }
           style={styles.headerImage}
-          contentFit="cover"
+          contentFit="contain"
         />
       }>
       <ThemedView style={styles.titleContainer}>
         <ThemedText type="title">Welcome!</ThemedText>
         <HelloWave />
       </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 1: Try it</ThemedText>
         <ThemedText>
@@ -37,6 +48,7 @@ export default function HomeScreen() {
           to open developer tools.
         </ThemedText>
       </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <Link href="/modal">
           <Link.Trigger>
@@ -65,6 +77,7 @@ export default function HomeScreen() {
           {`Tap the Explore tab to learn more about what's included in this starter app.`}
         </ThemedText>
       </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
         <ThemedText>
@@ -86,8 +99,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerImage: {
-    width:'100%',
-    height:'100%',
+    width: '100%',
+    height: '100%',
   },
   stepContainer: {
     gap: 8,
