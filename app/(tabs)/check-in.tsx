@@ -1,42 +1,47 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
+import LoomPlayer from '@/components/loom-player';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Link } from 'expo-router';
+import React from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 
-export default function HomeScreen() {
+export default function CheckInScreen() {
+  const today = new Date();
+  const dateText = formatDate(today);
+
   return (
+    
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
       headerImage={
-        <Image
-          source={require('@/assets/images/project-sparkes-logo.png')}
-          style={styles.headerImage}
-          contentFit="cover"
-        />
-      }>
+        <View style={styles.videoSection}>
+          <LoomPlayer
+            video="https://www.loom.com/share/29d768ff7de54899baf69c3810d43296?t=0"
+            aspectRatio={16 / 9}
+          />
+        </View>
+      }
+    >
+      <View style={styles.dateBar}>
+              <ThemedText style={styles.dateText}>{dateText}</ThemedText>
+      </View>
+
       <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
+        <ThemedText type="title">Check-In</ThemedText>
       </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 1: Try it</ThemedText>
         <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
+          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes. Press{' '}
           <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
+            {Platform.select({ ios: 'cmd + d', android: 'cmd + m', web: 'F12' })}
           </ThemedText>{' '}
           to open developer tools.
         </ThemedText>
       </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <Link href="/modal">
           <Link.Trigger>
@@ -45,18 +50,9 @@ export default function HomeScreen() {
           <Link.Preview />
           <Link.Menu>
             <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
+            <Link.MenuAction title="Share" icon="square.and.arrow.up" onPress={() => alert('Share pressed')} />
             <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
+              <Link.MenuAction title="Delete" icon="trash" destructive onPress={() => alert('Delete pressed')} />
             </Link.Menu>
           </Link.Menu>
         </Link>
@@ -65,6 +61,7 @@ export default function HomeScreen() {
           {`Tap the Explore tab to learn more about what's included in this starter app.`}
         </ThemedText>
       </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
         <ThemedText>
@@ -79,25 +76,40 @@ export default function HomeScreen() {
   );
 }
 
+function formatDate(d: Date) {
+  const n = d.getDate();
+  const ord =
+    n % 10 === 1 && n % 100 !== 11 ? 'st' :
+    n % 10 === 2 && n % 100 !== 12 ? 'nd' :
+    n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th';
+  const month = d.toLocaleString('en-GB', { month: 'long' });
+  return `${n}${ord} ${month} ${d.getFullYear()}`;
+}
+
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  videoSection: { backgroundColor: '#000' },
+
+  dateBar: {
+    height: 32,
+    backgroundColor: '#5590c7ff',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#00000040',
   },
-  headerImage: {
-    width:'100%',
-    height:'100%',
+  dateText: { color: '#fff', fontWeight: '600' },
+
+  titleContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   stepContainer: {
     gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: '#00000020',
   },
 });
