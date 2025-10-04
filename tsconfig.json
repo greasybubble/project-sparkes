@@ -4,14 +4,14 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     },
-
-    // Explicit defaults Expo uses – keeps VS Code linters happy
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",
-    "jsx": "react-jsx",          // or "react-native" if you prefer
+    "jsx": "react-jsx",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -19,8 +19,6 @@
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "**/*.tsx"
   ]
 }
