@@ -12,9 +12,11 @@ import {
 
 import MacroTrendsChart from '@/components/macro-trends-chart';
 import SegmentedTabs from '@/components/segmented-tabs';
+import WeightAverageCard from '@/components/weight-average-card';
+import WeightTable from '@/components/weight-table';
 import { supabase } from '@/lib/supabase';
-import { fetchMyNutritionLogs, NutritionLog } from '@/services/nutrition';
-
+import { fetchMyNutritionLogs, type NutritionLog } from '@/services/nutrition';
+import { fetchMyWeightLogs, type WeightLog } from '@/services/weight';
 
 /* ───────────────────────────────── helpers ───────────────────────────────── */
 
@@ -32,7 +34,7 @@ function startOfISOWeek(date: Date) {
 }
 function getISOWeek(date: Date) {
   const tmp = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  // Thursday in current week decides the year.
+  // Thursday decides the ISO week-numbering year
   tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
   const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
   return Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
@@ -42,12 +44,14 @@ function getISOWeek(date: Date) {
 
 export default function ProgressScreen() {
   const { colors, dark } = useTheme();
-  const [items, setItems] = useState<NutritionLog[] | null>(null);
-  const [errorText, setErrorText] = useState<string | null>(null);
 
   // 0 = Fitness, 1 = Weight, 2 = Nutrition
   const [tabIndex, setTabIndex] = useState<0 | 1 | 2>(2);
   const [windowDays, setWindowDays] = useState<7 | 30 | 90>(7);
+
+  const [items, setItems] = useState<NutritionLog[] | null>(null);
+  const [weights, setWeights] = useState<WeightLog[] | null>(null);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
   const screenBg = colors.background;
   const textColor = colors.text;
@@ -56,27 +60,52 @@ export default function ProgressScreen() {
   const panel = dark ? '#0f1216' : '#ffffff';
   const primary = colors.primary;
 
-  // Load nutrition logs
+  // Load both datasets together
   useEffect(() => {
     let mounted = true;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { if (mounted) { setErrorText('Not signed in'); setItems([]); } return; }
+      if (!session) {
+        if (mounted) {
+          setErrorText('Not signed in');
+          setItems([]);
+          setWeights([]);
+        }
+        return;
+      }
       try {
-        const rows = await fetchMyNutritionLogs({ limit: 730 });
-        if (mounted) setItems(rows);
+        const [nutritionRows, weightRows] = await Promise.all([
+          fetchMyNutritionLogs({ limit: 730 }),
+          fetchMyWeightLogs({ limit: 730 }),
+        ]);
+        if (mounted) {
+          setItems(nutritionRows);
+          setWeights(weightRows);
+        }
       } catch (e: any) {
-        if (mounted) { setErrorText(String(e?.message ?? e)); setItems([]); }
+        if (mounted) {
+          setErrorText(String(e?.message ?? e));
+          setItems([]);
+          setWeights([]);
+        }
       }
     })();
     return () => { mounted = false; };
   }, []);
 
-  const latest = items?.[0] ?? null;
+  // ── Derivations: ALWAYS call hooks (guard nulls inside)
+  const latestFood = items?.[0] ?? null;
+  const latestWeighIn = weights?.[0] ?? null;
 
-  // 7-day average
+  const headers = [
+    { title: 'LAST ACTIVITY', date: new Date().toDateString() },
+    { title: 'LAST WEIGH-IN', date: latestWeighIn?.log_date ? new Date(latestWeighIn.log_date).toDateString() : '—' },
+    { title: 'LAST FOOD LOG', date: latestFood?.log_date ? new Date(latestFood.log_date).toDateString() : '—' },
+  ] as const;
+
+  // Nutrition memos
   const avg7 = useMemo(() => {
-    if (!items?.length) return null;
+    if (!items || items.length === 0) return null;
     const slice = items.slice(0, 7);
     const n = slice.length || 1;
     const s = slice.reduce(
@@ -96,30 +125,37 @@ export default function ProgressScreen() {
     };
   }, [items]);
 
-  // Chart data
   const chartData = useMemo(() => {
-    if (!items?.length) return [];
+    if (!items || items.length === 0) return [];
     const oldestToNewest = [...items].reverse();
     const slice = oldestToNewest.slice(-windowDays);
     return slice.map(r => ({ date: r.log_date, calories: r.calories ?? 0 }));
   }, [items, windowDays]);
 
+  // Weight memos
+  const weightAvg7 = useMemo(() => {
+    if (!weights || weights.length === 0) return null;
+    const slice = weights.slice(0, 7);
+    const n = slice.length || 1;
+    const sum = slice.reduce((a, r) => a + (r.weight ?? 0), 0);
+    return +(sum / n).toFixed(1);
+  }, [weights]);
+
+  const weightChartRows = useMemo(() => {
+    if (!weights || weights.length === 0) return [];
+    const oldestToNewest = [...weights].reverse();
+    const slice = oldestToNewest.slice(-windowDays);
+    return slice.map(r => ({ date: r.log_date, weight: r.weight ?? 0 }));
+  }, [weights, windowDays]);
+
   const chartPropsForWindow = (n: 7 | 30 | 90) => {
-    if (n === 7)  return { scale: 'percentile' as const, lowerPct: 15, upperPct: 85, smooth: 3, tickCount: 4 };
+    if (n === 7) return { scale: 'percentile' as const, lowerPct: 15, upperPct: 85, smooth: 3, tickCount: 4 };
     if (n === 30) return { scale: 'percentile' as const, lowerPct: 10, upperPct: 90, smooth: 2, tickCount: 4 };
-    return          { scale: 'minmax'     as const,                           smooth: 1, tickCount: 5 };
+    return { scale: 'minmax' as const, smooth: 1, tickCount: 5 };
   };
 
-  if (items === null) return <Center bg={screenBg}><ActivityIndicator /></Center>;
-  if (errorText) return <Center bg={screenBg}><Text style={{ color: textColor, textAlign: 'center' }}>{errorText}</Text></Center>;
-
-  const todayStr = new Date().toDateString();
-  const headers = [
-    { title: 'LAST ACTIVITY', date: todayStr },
-    { title: 'LAST WEIGH-IN', date: todayStr },
-    { title: 'LAST FOOD LOG', date: latest?.log_date ? new Date(latest.log_date).toDateString() : '—' },
-  ] as const;
-
+  // ── Render (no early returns → hook order stable)
+  const isLoading = items === null || weights === null;
   return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>
       {/* Top banner above tabs (always visible) */}
@@ -134,120 +170,176 @@ export default function ProgressScreen() {
 
       {/* Segmented tabs (always visible) */}
       <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-        <SegmentedTabs
-          tabs={['Fitness', 'Weight', 'Nutrition']}
-          value={tabIndex}
-          onChange={(i) => setTabIndex(i as 0 | 1 | 2)}
-        />
+        <SegmentedTabs tabs={['Fitness', 'Weight', 'Nutrition']} value={tabIndex} onChange={(i) => setTabIndex(i as 0 | 1 | 2)} />
       </View>
 
-      {/* Bodies */}
-      {tabIndex === 0 && (
-        <Card panel={panel} border={border}>
-          <Text style={{ color: textColor, fontWeight: '700' }}>Fitness Overview</Text>
-          <Text style={{ color: subText, marginTop: 6 }}>Drop your widgets here.</Text>
-        </Card>
+      {/* Loading / error banners inside the page */}
+      {isLoading && (
+        <Center bg={screenBg}>
+          <ActivityIndicator />
+        </Center>
+      )}
+      {!isLoading && errorText && (
+        <Center bg={screenBg}>
+          <Text style={{ color: textColor, textAlign: 'center' }}>{errorText}</Text>
+        </Center>
       )}
 
-      {tabIndex === 1 && (
-        <Card panel={panel} border={border}>
-          <Text style={{ color: textColor, fontWeight: '700' }}>Weight Trends</Text>
-          <Text style={{ color: subText, marginTop: 6 }}>Bodyweight chart coming soon.</Text>
-        </Card>
-      )}
-
-      {tabIndex === 2 && (
-        // One scroller: Avg card + Chart + Table sections
-        <SectionList
-          sections={groupByWeek(items)}
-          keyExtractor={(item) => item.log_date}
-          stickySectionHeadersEnabled
-          contentContainerStyle={{ paddingBottom: 20 }}
-          ListHeaderComponent={
-            <View>
-              {/* 7-day average card */}
-              {avg7 && (
-                <Card panel={panel} border={border} style={{ marginBottom: 10 }}>
-                  <Text style={{ color: subText, fontSize: 12, fontWeight: '700', letterSpacing: 0.3, marginBottom: 8 }}>
-                    7 DAY AVERAGE
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 30, fontWeight: '900', color: textColor, lineHeight: 34 }}>{avg7.calories}</Text>
-                      <Text style={{ marginTop: 2, color: subText, fontSize: 14, fontWeight: '700' }}>kcal</Text>
-                    </View>
-                    <View style={{ flex: 1.2, gap: 6 }}>
-                      <MacroLine label="CARBS" value={`${avg7.carbs} g`} accent={primary} sub={subText} />
-                      <MacroLine label="FAT" value={`${avg7.fat} g`} accent={primary} sub={subText} />
-                      <MacroLine label="PROTEIN" value={`${avg7.protein} g`} accent={primary} sub={subText} />
-                    </View>
-                  </View>
-                </Card>
-              )}
-
-              {/* Chart + range toggles */}
-              <Card panel={panel} border={border}>
-                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
-                  {[7, 30, 90].map(n => {
-                    const active = windowDays === (n as 7 | 30 | 90);
-                    return (
-                      <View
-                        key={n}
-                        style={{
-                          paddingVertical: 5,
-                          paddingHorizontal: 10,
-                          borderRadius: 8,
-                          backgroundColor: active ? primary : 'transparent',
-                          borderWidth: 1,
-                          borderColor: active ? primary : border,
-                          marginHorizontal: 3,
-                        }}
-                      >
-                        <Text
-                          onPress={() => setWindowDays(n as 7 | 30 | 90)}
-                          style={{ color: active ? '#fff' : textColor, fontWeight: '700', fontSize: 12 }}
-                        >
-                          {n} days
-                        </Text>
-                      </View>
-                    );
-                  })}
-                </View>
-                <MacroTrendsChart data={chartData} height={120} {...chartPropsForWindow(windowDays)} />
-              </Card>
-
-              {/* Table heading */}
-              <Card panel={panel} border={border} style={{ marginTop: 10, paddingVertical: 10 }}>
-                <Text style={{ color: textColor, fontWeight: '800', fontSize: 16 }}>Nutrition Table</Text>
-                <View style={{ height: 10 }} />
-                <HeaderRow text={textColor} />
-              </Card>
-            </View>
-          }
-          renderSectionHeader={({ section }) => (
-            <View
-              style={{
-                backgroundColor: panel,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderTopWidth: StyleSheet.hairlineWidth,
-                borderTopColor: border,
-              }}
-            >
-              <Text style={{ fontWeight: '700', color: subText }}>{section.title}</Text>
-            </View>
+      {!isLoading && !errorText && (
+        <>
+          {tabIndex === 0 && (
+            <Card panel={panel} border={border}>
+              <Text style={{ color: textColor, fontWeight: '700' }}>Fitness Overview</Text>
+              <Text style={{ color: subText, marginTop: 6 }}>Drop your widgets here.</Text>
+            </Card>
           )}
-          renderItem={({ item }) => (
-            <Row
-              calories={item.calories ?? 0}
-              carbs={item.carbohydrate ?? 0}
-              fat={item.fat ?? 0}
-              protein={item.protein ?? 0}
-              text={textColor}
-              border={border}
+
+          {tabIndex === 1 && (
+            <SectionList
+              sections={[{ title: 'weight', data: weights! }]}
+              keyExtractor={(item) => item.log_date}
+              stickySectionHeadersEnabled={false}
+              renderItem={() => null}
+              ListHeaderComponent={
+                <View>
+                  {weightAvg7 !== null && <WeightAverageCard avgKg={weightAvg7} />}
+
+                  {/* Range toggles */}
+                  <Card panel={panel} border={border}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
+                      {[7, 30, 90].map(n => {
+                        const active = windowDays === (n as 7 | 30 | 90);
+                        return (
+                          <View
+                            key={n}
+                            style={{
+                              paddingVertical: 5,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              backgroundColor: active ? primary : 'transparent',
+                              borderWidth: 1,
+                              borderColor: active ? primary : border,
+                              marginHorizontal: 3,
+                            }}
+                          >
+                            <Text onPress={() => setWindowDays(n as 7 | 30 | 90)} style={{ color: active ? '#fff' : textColor, fontWeight: '700', fontSize: 12 }}>
+                              {n} days
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    <MacroTrendsChart
+    data={weightChartRows.map(r => ({ date: r.date, calories: r.weight ?? 0 }))}
+    height={120}
+    {...chartPropsForWindow(windowDays)}
+    yRound={1}
+    tickRound={1}
+  />
+
+                  </Card>
+
+                  <WeightTable items={weights!} />
+                </View>
+              }
             />
           )}
-        />
+
+          {tabIndex === 2 && (
+            // One scroller: Avg card + Chart + Table sections
+            <SectionList
+              sections={groupByWeek(items!)}
+              keyExtractor={(item) => item.log_date}
+              stickySectionHeadersEnabled
+              contentContainerStyle={{ paddingBottom: 20 }}
+              ListHeaderComponent={
+                <View>
+                  {/* 7-day average card */}
+                  {avg7 && (
+                    <Card panel={panel} border={border} style={{ marginBottom: 10 }}>
+                      <Text style={{ color: subText, fontSize: 12, fontWeight: '700', letterSpacing: 0.3, marginBottom: 8 }}>
+                        7 DAY AVERAGE
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 30, fontWeight: '900', color: textColor, lineHeight: 34 }}>{avg7.calories}</Text>
+                          <Text style={{ marginTop: 2, color: subText, fontSize: 14, fontWeight: '700' }}>kcal</Text>
+                        </View>
+                        <View style={{ flex: 1.2, gap: 6 }}>
+                          <MacroLine label="CARBS" value={`${avg7.carbs} g`} accent={primary} sub={subText} />
+                          <MacroLine label="FAT" value={`${avg7.fat} g`} accent={primary} sub={subText} />
+                          <MacroLine label="PROTEIN" value={`${avg7.protein} g`} accent={primary} sub={subText} />
+                        </View>
+                      </View>
+                    </Card>
+                  )}
+
+                  {/* Chart + range toggles */}
+                  <Card panel={panel} border={border}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
+                      {[7, 30, 90].map(n => {
+                        const active = windowDays === (n as 7 | 30 | 90);
+                        return (
+                          <View
+                            key={n}
+                            style={{
+                              paddingVertical: 5,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              backgroundColor: active ? primary : 'transparent',
+                              borderWidth: 1,
+                              borderColor: active ? primary : border,
+                              marginHorizontal: 3,
+                            }}
+                          >
+                            <Text
+                              onPress={() => setWindowDays(n as 7 | 30 | 90)}
+                              style={{ color: active ? '#fff' : textColor, fontWeight: '700', fontSize: 12 }}
+                            >
+                              {n} days
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <MacroTrendsChart data={chartData} height={120} {...chartPropsForWindow(windowDays)} />
+                  </Card>
+
+                  {/* Table heading */}
+                  <Card panel={panel} border={border} style={{ marginTop: 10, paddingVertical: 10 }}>
+                    <Text style={{ color: textColor, fontWeight: '800', fontSize: 16 }}>Nutrition Table</Text>
+                    <View style={{ height: 10 }} />
+                    <HeaderRow text={textColor} />
+                  </Card>
+                </View>
+              }
+              renderSectionHeader={({ section }) => (
+                <View
+                  style={{
+                    backgroundColor: panel,
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: border,
+                  }}
+                >
+                  <Text style={{ fontWeight: '700', color: subText }}>{section.title}</Text>
+                </View>
+              )}
+              renderItem={({ item }) => (
+                <Row
+                  calories={item.calories ?? 0}
+                  carbs={item.carbohydrate ?? 0}
+                  fat={item.fat ?? 0}
+                  protein={item.protein ?? 0}
+                  text={textColor}
+                  border={border}
+                />
+              )}
+            />
+          )}
+        </>
       )}
     </View>
   );
@@ -255,7 +347,7 @@ export default function ProgressScreen() {
 
 /* ───────────────────────── Nutrition table bits ─────────────────────────── */
 
-function groupByWeek(items: NutritionLog[] | null) {
+function groupByWeek(items: NutritionLog[]) {
   if (!items?.length) return [];
   const groups = new Map<string, NutritionLog[]>();
   for (const r of items) {
@@ -312,19 +404,16 @@ function Row({
           {Math.round(calories)}
         </Text>
       </Cell>
-
       <Cell style={{ flex: 1, alignItems: 'flex-end' }}>
         <Text numberOfLines={1} ellipsizeMode="clip" style={numStyle(text)}>
           {carbs.toFixed(1)}
         </Text>
       </Cell>
-
       <Cell style={{ flex: 1, alignItems: 'flex-end' }}>
         <Text numberOfLines={1} ellipsizeMode="clip" style={numStyle(text)}>
           {fat.toFixed(1)}
         </Text>
       </Cell>
-
       <Cell style={{ flex: 1, alignItems: 'flex-end' }}>
         <Text numberOfLines={1} ellipsizeMode="clip" style={numStyle(text)}>
           {protein.toFixed(1)}
@@ -334,7 +423,7 @@ function Row({
   );
 }
 
-// Patch 1 + 2: numeric text style (typed so TS is happy) and no wrapping
+// Numeric text style (typed) & no wrapping
 const numStyle = (color: string): TextStyle => ({
   color,
   textAlign: 'right',
@@ -342,7 +431,7 @@ const numStyle = (color: string): TextStyle => ({
   includeFontPadding: false,
 });
 
-// Patch 3: consistent cell sizing (prevents squashing on narrow screens)
+// Consistent cell sizing (prevents squashing on narrow screens)
 function Cell({
   children,
   style,
@@ -355,7 +444,7 @@ function Cell({
       style={[
         {
           minHeight: 20,
-          minWidth: 64, // helps columns stay tidy on small phones
+          minWidth: 64,
           justifyContent: 'center',
         },
         style,
